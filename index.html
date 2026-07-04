@@ -64,6 +64,10 @@
                                 appId: "1:20497033089:web:a495ff5c2c76d297e9ea80",
                                 measurementId: "G-XS82LTM3GJ"
                               };
+        const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = 'JANTRA_PROD'; // ID unik untuk direktori data Anda
 
         let firebaseUser = null;
 
