@@ -522,7 +522,7 @@
                     <td class="p-4 text-sm font-medium text-gray-600">${u.mapel || '-'}</td>
                     <td class="p-4 text-center">${u.foto ? `<img src="${u.foto}" class="w-10 h-10 rounded-full mx-auto object-cover border-2 border-white shadow-sm">` : '<div class="w-10 h-10 rounded-full mx-auto bg-gray-100 flex items-center justify-center text-gray-400"><i class="fas fa-user"></i></div>'}</td>
                     <td class="p-4 text-center">
-                        <button onclick='formUser(${JSON.stringify(u)})' class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button onclick="formUser('${u.id}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
                         <button onclick="hapusUser('${u.id}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-colors mx-1" title="Hapus"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>
@@ -682,7 +682,9 @@
             else if(!hasVisible && rows.length > 0) document.getElementById('userTableBody').insertAdjacentHTML('beforeend', `<tr id="userEmptyRow"><td colspan="7" class="p-8 text-center text-gray-400 font-medium">Pencarian tidak ditemukan</td></tr>`);
         }
 
-        window.formUser = function(data = null) {
+        // PERBAIKAN: Menggunakan Parameter ID sebagai String, bukan Object Object JSON
+        window.formUser = function(id = null) {
+            const data = id ? state.users.find(u => u.id === id) : null;
             const html = `
                 <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-black text-gray-800">${data ? 'Edit User' : 'User Baru'}</h2><button onclick="closeModal()" class="text-gray-400 hover:text-red-500 bg-gray-50 w-8 h-8 rounded-full transition-colors"><i class="fas fa-times"></i></button></div>
                 <form onsubmit="simpanUser(event, '${data ? data.id : ''}')" class="space-y-4">
@@ -708,7 +710,7 @@
         }
 
         window.simpanUser = async function(e, id) {
-            e.preventDefault(); closeModal();
+            e.preventDefault(); 
             const payload = { 
                 id: id || `U-${Date.now()}`, 
                 nip: document.getElementById('uNip').value, 
@@ -718,6 +720,9 @@
                 mapel: document.getElementById('uMapel').value, 
                 foto: document.getElementById('uBase64').value 
             };
+            
+            // PERBAIKAN: Memindahkan pemanggilan closeModal() ke SETELAH nilai form berhasil diambil
+            closeModal();
             
             showSyncToast();
             try { 
@@ -775,8 +780,9 @@
                     <td class="p-4 text-sm text-gray-400 tracking-widest">****</td>
                     <td class="p-4 text-sm text-center"><span class="bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">${s.kelas}</span></td>
                     <td class="p-4 text-sm text-center font-medium text-gray-600">${s.tahun}</td>
+                    <td class="p-4 text-center">${s.foto ? `<img src="${s.foto}" class="w-10 h-10 rounded-full mx-auto object-cover border-2 border-white shadow-sm">` : '<div class="w-10 h-10 rounded-full mx-auto bg-gray-100 flex items-center justify-center text-gray-400"><i class="fas fa-user-graduate"></i></div>'}</td>
                     <td class="p-4 text-center">
-                        <button onclick='formSiswa(${JSON.stringify(s)})' class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button onclick="formSiswa('${s.id}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
                         <button onclick="hapusSiswa('${s.id}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-colors mx-1" title="Hapus"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>
@@ -808,7 +814,7 @@
                     <table class="w-full text-left border-collapse min-w-[1000px]">
                         <thead class="bg-white/90 backdrop-blur-md text-gray-600 sticky top-0 z-10 border-b border-gray-100 text-[11px] uppercase tracking-wider font-extrabold">
                             <tr>
-                                <th class="p-4 text-center w-12">No</th><th class="p-4">NIS / NISN</th><th class="p-4">Nama Siswa</th><th class="p-4 text-center">L/P</th><th class="p-4">Password</th><th class="p-4 text-center">Kelas</th><th class="p-4 text-center">Tahun</th><th class="p-4 text-center w-32">Aksi</th>
+                                <th class="p-4 text-center w-12">No</th><th class="p-4">NIS / NISN</th><th class="p-4">Nama Siswa</th><th class="p-4 text-center">L/P</th><th class="p-4">Password</th><th class="p-4 text-center">Kelas</th><th class="p-4 text-center">Tahun</th><th class="p-4 text-center">Foto</th><th class="p-4 text-center w-32">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>${tbody || emptyStateHTML('Siswa')}</tbody>
@@ -817,9 +823,12 @@
             </div>`;
         }
 
-        window.formSiswa = function(data = null) {
+        // PERBAIKAN: Pelemparan argumen string ID
+        window.formSiswa = function(id = null) {
+            const data = id ? state.siswa.find(s => s.id === id) : null;
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${data&&data.kelas===k?'selected':''}>${k}</option>`).join('');
             let optThn = getDynamicTahun().map(t=>`<option value="${t}" ${data&&data.tahun===t?'selected':''}>${t}</option>`).join('');
+            
             const html = `
                 <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-black text-gray-800">${data ? 'Edit Siswa' : 'Siswa Baru'}</h2><button onclick="closeModal()" class="text-gray-400 hover:text-red-500 bg-gray-50 w-8 h-8 rounded-full transition-colors"><i class="fas fa-times"></i></button></div>
                 <form onsubmit="simpanSiswa(event, '${data ? data.id : ''}')" class="space-y-4">
@@ -837,13 +846,22 @@
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">Kelas</label><select id="sKls" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500">${optKls}</select></div>
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">Tahun Ajaran</label><select id="sThn" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500">${optThn}</select></div>
                     </div>
+                    
+                    <!-- PERBAIKAN: Input File untuk Foto Siswa ditambahkan -->
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Foto Profil Siswa (Maks 25KB)</label>
+                        <input type="file" id="sFotoInput" accept="image/*" onchange="handleImageUpload(event, 'sPreview', 'sBase64')" class="w-full border border-gray-200 rounded-xl p-2 text-sm bg-gray-50">
+                        <img id="sPreview" src="${data && data.foto ? data.foto : ''}" class="mt-3 h-20 w-20 rounded-full border-2 border-blue-200 object-cover shadow-sm ${data && data.foto ? '' : 'hidden'}">
+                        <textarea id="sBase64" class="hidden">${data && data.foto ? data.foto : ''}</textarea>
+                    </div>
+
                     <div class="pt-6 flex justify-end"><button type="submit" class="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:bg-blue-700 active:scale-95 transition-all text-lg">Simpan Siswa</button></div>
                 </form>
             `; openModal(html);
         }
 
         window.simpanSiswa = async function(e, id) {
-            e.preventDefault(); closeModal();
+            e.preventDefault(); 
             const p = { 
                 id: id || `S-${Date.now()}`, 
                 no: document.getElementById('sNo').value, 
@@ -854,8 +872,12 @@
                 password: document.getElementById('sPass').value, 
                 kelas: document.getElementById('sKls').value, 
                 tahun: document.getElementById('sThn').value, 
-                foto: '' 
+                // PERBAIKAN: Foto sekarang direkam dari form
+                foto: document.getElementById('sBase64').value 
             };
+            
+            // PERBAIKAN: Memindahkan pemanggilan closeModal() ke SETELAH nilai form berhasil diambil
+            closeModal();
             
             showSyncToast(); 
             try { await saveToFirebase('siswa', p); } catch(err) { Swal.fire('Error','Gagal simpan','error'); }
