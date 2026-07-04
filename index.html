@@ -55,19 +55,22 @@
         import { getFirestore, collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // FIREBASE SETUP
-        const firebaseConfig = {
-                                apiKey: "AIzaSyDbV-Pm72hxFlAIvIF7mmZcR-LiMwVn2uc",
-                                authDomain: "jantra-spensada.firebaseapp.com",
-                                projectId: "jantra-spensada",
-                                storageBucket: "jantra-spensada.firebasestorage.app",
-                                messagingSenderId: "20497033089",
-                                appId: "1:20497033089:web:a495ff5c2c76d297e9ea80",
-                                measurementId: "G-XS82LTM3GJ"
-                              };
+        // Penyesuaian konfigurasi dinamis agar CRUD tidak diblokir oleh environment
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyDbV-Pm72hxFlAIvIF7mmZcR-LiMwVn2uc",
+            authDomain: "jantra-spensada.firebaseapp.com",
+            projectId: "jantra-spensada",
+            storageBucket: "jantra-spensada.firebasestorage.app",
+            messagingSenderId: "20497033089",
+            appId: "1:20497033089:web:a495ff5c2c76d297e9ea80",
+            measurementId: "G-XS82LTM3GJ"
+        };
         const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = 'JANTRA_PROD'; // ID unik untuk direktori data Anda
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // Perbaikan appId dinamis agar sinkron dengan database scope di canvas preview maupun production
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'JANTRA_PROD';
 
         let firebaseUser = null;
 
@@ -541,8 +544,8 @@ const appId = 'JANTRA_PROD'; // ID unik untuk direktori data Anda
             
             <div class="flex flex-wrap gap-2 mb-4 justify-between">
                 <div class="flex gap-2">
-                    <button onclick="alert('Fungsi template dinonaktifkan sementara.')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-emerald-100 active:scale-95 transition-all"><i class="fas fa-file-excel mr-2"></i>Template</button>
-                    <label class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-amber-100 active:scale-95 transition-all cursor-pointer"><i class="fas fa-upload mr-2"></i>Upload Excel<input type="file" class="hidden" accept=".xlsx, .xls" onchange="alert('Fungsi upload excel dinonaktifkan sementara.')"></label>
+                    <button onclick="downloadTemplateUser()" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-emerald-100 active:scale-95 transition-all"><i class="fas fa-file-excel mr-2"></i>Template</button>
+                    <label class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-amber-100 active:scale-95 transition-all cursor-pointer"><i class="fas fa-upload mr-2"></i>Upload Excel<input type="file" class="hidden" accept=".xlsx, .xls" onchange="uploadExcelUser(event)"></label>
                 </div>
                 <button onclick="hapusSemuaUser()" class="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all"><i class="fas fa-trash-alt mr-2"></i>Kosongkan</button>
             </div>
@@ -566,6 +569,105 @@ const appId = 'JANTRA_PROD'; // ID unik untuk direktori data Anda
                 </div>
             </div>`;
         }
+
+        // --- FUNGSI EXCEL DOWNLOAD & UPLOAD ---
+        window.downloadTemplateUser = function() {
+            const ws = XLSX.utils.aoa_to_sheet([["NIP", "Nama", "Password", "Role", "Mapel"]]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Data_User");
+            XLSX.writeFile(wb, "Template_User.xlsx");
+        };
+
+        window.uploadExcelUser = function(event) {
+            const file = event.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(sheet);
+                    
+                    if(json.length === 0) return Swal.fire('Kosong', 'File Excel tidak berisi data.', 'warning');
+
+                    let payload = json.map((row, i) => ({
+                        id: `U-${Date.now()}-${i}`,
+                        nip: String(row.NIP || ''),
+                        nama: row.Nama || '',
+                        password: String(row.Password || '123456'),
+                        role: row.Role || 'Guru',
+                        mapel: row.Mapel || '-',
+                        foto: ''
+                    })).filter(x => x.nip && x.nama);
+
+                    if(payload.length > 0) {
+                        showLoading();
+                        await batchSaveToFirebase('users', payload);
+                        closeLoading();
+                        Swal.fire('Berhasil', `${payload.length} data User berhasil diimpor!`, 'success');
+                    } else {
+                        Swal.fire('Gagal', 'Pastikan kolom NIP dan Nama terisi di Excel.', 'error');
+                    }
+                } catch (err) {
+                    closeLoading();
+                    Swal.fire('Error', 'Gagal memproses file Excel.', 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = '';
+        };
+
+        window.downloadTemplateSiswa = function() {
+            const ws = XLSX.utils.aoa_to_sheet([["No", "NIS", "NISN", "Nama", "JK", "Password", "Kelas", "Tahun"]]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Data_Siswa");
+            XLSX.writeFile(wb, "Template_Siswa.xlsx");
+        };
+
+        window.uploadExcelSiswa = function(event) {
+            const file = event.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(sheet);
+                    
+                    if(json.length === 0) return Swal.fire('Kosong', 'File Excel tidak berisi data.', 'warning');
+
+                    let payload = json.map((row, i) => ({
+                        id: `S-${Date.now()}-${i}`,
+                        no: row.No || (i+1),
+                        nis: String(row.NIS || ''),
+                        nisn: String(row.NISN || ''),
+                        nama: row.Nama || '',
+                        jk: row.JK || 'L',
+                        password: String(row.Password || '123456'),
+                        kelas: String(row.Kelas || ''),
+                        tahun: String(row.Tahun || ''),
+                        foto: ''
+                    })).filter(x => x.nama);
+
+                    if(payload.length > 0) {
+                        showLoading();
+                        await batchSaveToFirebase('siswa', payload);
+                        closeLoading();
+                        Swal.fire('Berhasil', `${payload.length} data Siswa berhasil diimpor!`, 'success');
+                    } else {
+                        Swal.fire('Gagal', 'Pastikan kolom Nama terisi di Excel.', 'error');
+                    }
+                } catch (err) {
+                    closeLoading();
+                    Swal.fire('Error', 'Gagal memproses file Excel.', 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = ''; 
+        };
+        // ------------------------------------
 
         window.filterUserRealtime = function() {
             const query = document.getElementById('fuNama').value.toLowerCase();
@@ -695,8 +797,8 @@ const appId = 'JANTRA_PROD'; // ID unik untuk direktori data Anda
             <div class="flex flex-wrap gap-2 mb-4 justify-between items-center">
                 <button onclick="formSiswa()" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-md shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all"><i class="fas fa-plus mr-2"></i>Tambah Siswa</button>
                 <div class="flex gap-2">
-                    <button onclick="alert('Template dinonaktifkan sementara')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-emerald-100 active:scale-95 transition-all hidden sm:block"><i class="fas fa-file-excel mr-2"></i>Template</button>
-                    <label class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-amber-100 active:scale-95 transition-all cursor-pointer"><i class="fas fa-upload mr-2"></i>Upload Excel<input type="file" class="hidden" accept=".xlsx, .xls" onchange="alert('Upload dinonaktifkan sementara')"></label>
+                    <button onclick="downloadTemplateSiswa()" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-emerald-100 active:scale-95 transition-all hidden sm:block"><i class="fas fa-file-excel mr-2"></i>Template</button>
+                    <label class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-amber-100 active:scale-95 transition-all cursor-pointer"><i class="fas fa-upload mr-2"></i>Upload Excel<input type="file" class="hidden" accept=".xlsx, .xls" onchange="uploadExcelSiswa(event)"></label>
                     <button onclick="hapusSemuaSiswa()" class="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-700 active:scale-95 transition-all" title="Hapus Semua"><i class="fas fa-trash-alt"></i></button>
                 </div>
             </div>
