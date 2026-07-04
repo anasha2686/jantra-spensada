@@ -96,6 +96,15 @@
             state.siswa.forEach(s => { if(s.tahun) setThn.add(s.tahun); });
             return Array.from(setThn).sort((a,b) => b.localeCompare(a));
         };
+        
+        // Tambahan untuk filter yang hanya menampilkan tahun yang ada datanya
+        const getTahunAktif = () => {
+            let setThn = new Set();
+            state.siswa.forEach(s => { if(s.tahun) setThn.add(s.tahun); });
+            state.absensi.forEach(a => { if(a.tahun) setThn.add(a.tahun); });
+            state.nilai.forEach(n => { if(n.tahun) setThn.add(n.tahun); });
+            return Array.from(setThn).sort((a,b) => b.localeCompare(a));
+        };
 
         let state = {
             currentUser: null, activeMenu: 'dashboard',
@@ -769,7 +778,7 @@
             filtered.sort((a, b) => parseInt(a.no) - parseInt(b.no));
 
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${fKelas===k?'selected':''}>${k}</option>`).join('');
-            let optThn = getDynamicTahun().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
+            let optThn = getTahunAktif().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
 
             let tbody = filtered.map((s, i) => `
                 <tr class="border-b border-gray-50 hover:bg-blue-50/50 transition-colors">
@@ -1130,7 +1139,7 @@
                 return (sisA ? parseInt(sisA.no || 0) : 9999) - (sisB ? parseInt(sisB.no || 0) : 9999);
             });
 
-            let optThn = getDynamicTahun().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
+            let optThn = getTahunAktif().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${fKelas===k?'selected':''}>${k}</option>`).join('');
             
             let optGuru = state.users.filter(u => u.role === 'Guru').map(u => {
@@ -1219,7 +1228,7 @@
 
         function renderInputAbsensi() {
             let optKls = getDynamicKelas().map(k=>`<option value="${k}">${k}</option>`).join('');
-            let optThn = getDynamicTahun().map(t=>`<option value="${t}">${t}</option>`).join('');
+            let optThn = getTahunAktif().map(t=>`<option value="${t}">${t}</option>`).join('');
             return `
             <div class="max-w-4xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 lg:p-10 fade-in">
                 <div class="flex items-center justify-between mb-8 border-b border-gray-100 pb-4"><h2 class="text-2xl font-black text-gray-800">Input Absensi Kelas</h2><button onclick="navigate('absensi')" class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center shadow-sm"><i class="fas fa-times"></i></button></div>
@@ -1307,7 +1316,7 @@
                 return (sisA ? parseInt(sisA.no || 0) : 9999) - (sisB ? parseInt(sisB.no || 0) : 9999);
             });
 
-            let optThn = getDynamicTahun().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
+            let optThn = getTahunAktif().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${fKelas===k?'selected':''}>${k}</option>`).join('');
             
             let optGuru = state.users.filter(u => u.role === 'Guru').map(u => {
@@ -1397,7 +1406,7 @@
 
         function renderInputNilai() {
             let optKls = getDynamicKelas().map(k=>`<option value="${k}">${k}</option>`).join(''); 
-            let optThn = getDynamicTahun().map(t=>`<option value="${t}">${t}</option>`).join('');
+            let optThn = getTahunAktif().map(t=>`<option value="${t}">${t}</option>`).join('');
             return `
             <div class="max-w-4xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 lg:p-10 fade-in">
                 <div class="flex items-center justify-between mb-8 border-b border-gray-100 pb-4"><h2 class="text-2xl font-black text-gray-800">Input Nilai Kelas <span class="text-blue-600">(${state.currentUser.mapel})</span></h2><button onclick="navigate('nilai')" class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center shadow-sm"><i class="fas fa-times"></i></button></div>
