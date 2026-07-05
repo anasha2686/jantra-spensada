@@ -54,8 +54,11 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // FIREBASE SETUP
-        // Penyesuaian konfigurasi dinamis agar CRUD tidak diblokir oleh environment
+        // KONFIGURASI APLIKASI
+        // UBAH IS_PREVIEW KE false JIKA AKAN DI-DEPLOY KE BLOGGER
+        const IS_PREVIEW = false; 
+
+        // FIREBASE SETUP (100% DATABASE FIREBASE FIRESTORE - TANPA GAS/SHEETS)
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyDbV-Pm72hxFlAIvIF7mmZcR-LiMwVn2uc",
             authDomain: "jantra-spensada.firebaseapp.com",
@@ -69,19 +72,26 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // Perbaikan appId dinamis agar sinkron dengan database scope di canvas preview maupun production
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'JANTRA_PROD';
 
         let firebaseUser = null;
-
-        // KONFIGURASI APLIKASI
-        const IS_PREVIEW = false; // Set true untuk admin bypass (admin/edudigital)
 
         // PROTEKSI ANTI HACKER
         document.addEventListener('contextmenu', event => { event.preventDefault(); Swal.fire({icon: 'warning', title: 'Akses Ditolak', text: 'Klik kanan dinonaktifkan demi keamanan.', timer: 1500, showConfirmButton: false}); });
         document.onkeydown = function(e) { if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 'I'.charCodeAt(0) || e.keyCode == 'C'.charCodeAt(0) || e.keyCode == 'J'.charCodeAt(0))) || (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0))) { Swal.fire({icon: 'error', title: 'Aksi Ilegal', text: 'Inspect Element dinonaktifkan.', timer: 1500, showConfirmButton: false}); return false; } };
 
-        // Variabel Master Data Dinamis (Ditambah A-G)
+        // FUNGSI AVATAR OTOMATIS (DiceBear v9) & Validasi Foto
+        window.getValidFoto = function(base64Foto, nama = 'User', jk = null) {
+            if (base64Foto && base64Foto.length > 100) return base64Foto;
+            const seed = encodeURIComponent(nama.trim());
+            // Siswa (menggunakan jk)
+            if (jk === 'P') return `https://api.dicebear.com/9.x/adventurer/svg?seed=${seed}&hair=long01,long02,long03,long04,long05`;
+            if (jk === 'L') return `https://api.dicebear.com/9.x/adventurer/svg?seed=${seed}&hair=short01,short02,short03,short04`;
+            // Guru/User (general)
+            return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
+        }
+
+        // Variabel Master Data Dinamis
         const getDynamicKelas = () => {
             let setKls = new Set([
                 '7A', '7B', '7C', '7D', '7E', '7F', '7G', 
@@ -91,19 +101,15 @@
             state.siswa.forEach(s => { if(s.kelas && s.kelas !== 'Kegiatan Umum' && s.kelas !== 'Istirahat') setKls.add(s.kelas); });
             return Array.from(setKls).sort();
         };
-        const getDynamicTahun = () => {
-            let setThn = new Set(['2023/2024', '2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029', '2029/2030', '2030/2031']);
+
+        const getSavedTahun = () => {
+            let setThn = new Set();
             state.siswa.forEach(s => { if(s.tahun) setThn.add(s.tahun); });
             return Array.from(setThn).sort((a,b) => b.localeCompare(a));
         };
-        
-        // Tambahan untuk filter yang hanya menampilkan tahun yang ada datanya
-        const getTahunAktif = () => {
-            let setThn = new Set();
-            state.siswa.forEach(s => { if(s.tahun) setThn.add(s.tahun); });
-            state.absensi.forEach(a => { if(a.tahun) setThn.add(a.tahun); });
-            state.nilai.forEach(n => { if(n.tahun) setThn.add(n.tahun); });
-            return Array.from(setThn).sort((a,b) => b.localeCompare(a));
+
+        const getFullTahunOptions = () => {
+            return ['2023/2024', '2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029', '2029/2030', '2030/2031'];
         };
 
         let state = {
@@ -145,7 +151,6 @@
         }
 
         // ================= FIREBASE CRUD LOGIC =================
-        
         async function saveToFirebase(collectionName, payload) {
             if(!firebaseUser) throw new Error("Not authenticated to database");
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', collectionName, payload.id);
@@ -185,7 +190,6 @@
             let count = 0;
             const batches = [];
             for (const document of snap.docs) {
-                // Jangan hapus Admin Default
                 if (collectionName === 'users' && document.id === 'U-001') continue;
                 batch.delete(document.ref);
                 count++;
@@ -210,14 +214,10 @@
                 const colRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
                 onSnapshot(colRef, (snap) => {
                     state[colName] = snap.docs.map(d => d.data());
-                    // Sort descending untuk jurnal agar data terbaru di atas
-                    if(colName === 'jurnal') {
-                        state.jurnal.sort((a,b) => b.id.localeCompare(a.id));
-                    }
+                    if(colName === 'jurnal') state.jurnal.sort((a,b) => b.id.localeCompare(a.id));
                     dataLoaded[colName] = true;
                     
                     const viewMap = { 'users': 'user', 'siswa': 'siswa', 'jurnal': 'jurnal', 'absensi': 'absensi', 'nilai': 'nilai' };
-                    // Hanya render ulang jika sedang berada di halaman tabel (bukan form input)
                     if (state.currentUser && state.activeMenu === viewMap[colName]) {
                         render();
                     }
@@ -279,6 +279,13 @@
         // ================= SISTEM RENDER ANTI KEDIP =================
         window.render = function() {
             const app = document.getElementById('app');
+            
+            // Cek Session Login
+            const savedUser = localStorage.getItem('jantra_user');
+            if (savedUser && !state.currentUser) {
+                state.currentUser = JSON.parse(savedUser);
+            }
+
             if (!state.currentUser) {
                 app.innerHTML = renderLogin();
             } else {
@@ -309,20 +316,6 @@
         window.navigate = function(menu) {
             state.activeMenu = menu;
             render();
-            // Data loading is now handled real-time by Firebase onSnapshot
-        }
-
-        // Fallback loader if direct call happens
-        async function loadData(action, stateKey, isBackground = false) {
-            if(dataLoaded[stateKey]) { render(); return; }
-            if(!isBackground) showLoading();
-            let retries = 10; // Wait up to 5 seconds for snapshot
-            while(!dataLoaded[stateKey] && retries > 0) {
-                await new Promise(r => setTimeout(r, 500));
-                retries--;
-            }
-            if(!isBackground) closeLoading();
-            render();
         }
 
         window.doLogout = function() {
@@ -330,6 +323,7 @@
             .then((result) => { 
                 if (result.isConfirmed) { 
                     state.currentUser = null; 
+                    localStorage.removeItem('jantra_user');
                     showToast('success', 'Berhasil Logout'); 
                     render(); 
                 } 
@@ -387,12 +381,12 @@
             
             if (IS_PREVIEW && u === 'admin' && p === 'edudigital') {
                 state.currentUser = { id: "U-PREVIEW", nip: "admin", nama: "Admin Preview", role: "Admin", mapel: "-", foto: "" };
-                navigate('jurnal'); return;
+                localStorage.setItem('jantra_user', JSON.stringify(state.currentUser));
+                navigate('absensi'); return;
             }
 
             showLoading(); 
             try { 
-                // Ensure users are loaded
                 if(state.users.length === 0) {
                     const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
                     const snap = await getDocs(usersRef);
@@ -405,9 +399,10 @@
 
                 if(user && cleanNip === u && cleanPass === p) { 
                     state.currentUser = user; 
-                    state.currentUser.nip = cleanNip; // Normalize format
+                    state.currentUser.nip = cleanNip;
+                    localStorage.setItem('jantra_user', JSON.stringify(state.currentUser));
                     showToast('success', `Selamat Datang, ${state.currentUser.nama}`); 
-                    navigate('jurnal'); 
+                    navigate('absensi'); 
                 } else { 
                     Swal.fire('Gagal Login', 'Username / Password salah', 'error'); 
                 } 
@@ -428,20 +423,22 @@
                 menus += `<button data-id="siswa" onclick="navigate('siswa')" class="menu-item group w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium tracking-wide ${isActive('siswa')}"><div class="icon-wrap w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mr-3 transition-colors"><i class="fas fa-user-graduate"></i></div> Kelola Data Siswa</button>`;
             }
             menus += `<div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 mt-6 px-4">Akademik</div>`;
-            menus += `<button data-id="jurnal" onclick="navigate('jurnal')" class="menu-item group w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium tracking-wide ${isActive('jurnal')}"><div class="icon-wrap w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mr-3 transition-colors"><i class="fas fa-book"></i></div> Jurnal Guru</button>`;
             menus += `<button data-id="absensi" onclick="navigate('absensi')" class="menu-item group w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium tracking-wide ${isActive('absensi')}"><div class="icon-wrap w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mr-3 transition-colors"><i class="fas fa-calendar-check"></i></div> Absensi Siswa</button>`;
+            menus += `<button data-id="jurnal" onclick="navigate('jurnal')" class="menu-item group w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium tracking-wide ${isActive('jurnal')}"><div class="icon-wrap w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mr-3 transition-colors"><i class="fas fa-book"></i></div> Jurnal Guru</button>`;
             menus += `<button data-id="nilai" onclick="navigate('nilai')" class="menu-item group w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium tracking-wide ${isActive('nilai')}"><div class="icon-wrap w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center mr-3 transition-colors"><i class="fas fa-star"></i></div> Daftar Nilai Siswa</button>`;
             
             menus += `<div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 mt-6 px-4">Pengaturan</div>`;
             menus += `<button data-id="profil" onclick="navigate('profil')" class="menu-item group w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium tracking-wide ${isActive('profil')}"><div class="icon-wrap w-8 h-8 rounded-lg bg-gray-200 text-gray-700 flex items-center justify-center mr-3 transition-colors"><i class="fas fa-user-edit"></i></div> Ubah Profil</button>`;
             
+            const profilePic = getValidFoto(state.currentUser.foto, state.currentUser.nama);
+
             return `
             <div id="dashboard-layout" class="flex h-screen overflow-hidden bg-gray-50 fade-in w-full">
                 <!-- Sidebar Desktop -->
                 <aside id="sidebar" class="w-[260px] bg-white border-r border-gray-100 flex flex-col hidden md:flex absolute md:relative z-20 h-full transition-transform transform md:translate-x-0 -translate-x-full shadow-lg md:shadow-none">
                     <div class="flex flex-col items-center pt-8 pb-6 border-b border-gray-50 relative">
                         <button onclick="toggleSidebar()" class="absolute top-4 right-4 md:hidden text-gray-400 hover:text-gray-800 bg-gray-100 w-8 h-8 rounded-full flex justify-center items-center"><i class="fas fa-times"></i></button>
-                        <img src="https://i.imghippo.com/files/CcN4119YLA.png" alt="Logo" class="w-44 mb-6 hidden md:block cursor-pointer" style="mix-blend-mode: multiply;" onclick="showAppInfo()" title="Klik untuk Informasi Aplikasi">
+                        <img id="sidebarProfilePic" src="${profilePic}" class="w-20 h-20 rounded-full border-4 border-blue-50 object-cover shadow-sm mb-3">
                         <h3 class="font-bold text-gray-800 text-center px-4 tracking-tight">${state.currentUser.nama}</h3>
                         <span class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[11px] font-bold mt-1.5 border border-blue-100 uppercase tracking-wider">${role}</span>
                     </div>
@@ -467,7 +464,7 @@
                             </div>
                             <div class="flex items-center gap-2 border-l border-gray-200 pl-3">
                                 <button onclick="navigate('profil')" class="flex items-center gap-2 hover:bg-gray-100 p-1 rounded-full transition" title="Profil Saya">
-                                    <img src="${state.currentUser.foto || 'https://via.placeholder.com/150'}" class="w-8 h-8 rounded-full object-cover border border-gray-300 shadow-sm">
+                                    <img id="headerProfilePic" src="${profilePic}" class="w-8 h-8 rounded-full object-cover border border-gray-300 shadow-sm">
                                 </button>
                                 <button onclick="doLogout()" class="w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-500 hover:text-white flex items-center justify-center transition" title="Keluar Aplikasi">
                                     <i class="fas fa-power-off"></i>
@@ -479,8 +476,8 @@
                     <div id="page-content" class="flex-1 overflow-x-hidden overflow-y-auto p-4 lg:p-8 pb-24 md:pb-8 scroll-smooth">${renderActiveMenu()}</div>
                     
                     <nav class="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-100 flex justify-around items-center h-16 z-40 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] pb-safe">
-                        <button data-id="jurnal" onclick="navigate('jurnal')" class="bottom-nav-item flex flex-col items-center justify-center w-full py-2 transition-all ${state.activeMenu.includes('jurnal') ? 'text-blue-600 -translate-y-1' : 'text-gray-400 hover:text-blue-400'}"><i class="fas fa-book text-xl mb-1"></i><span class="text-[9px] font-bold uppercase tracking-wider">Jurnal</span></button>
                         <button data-id="absensi" onclick="navigate('absensi')" class="bottom-nav-item flex flex-col items-center justify-center w-full py-2 transition-all ${state.activeMenu.includes('absen') ? 'text-blue-600 -translate-y-1' : 'text-gray-400 hover:text-blue-400'}"><i class="fas fa-calendar-check text-xl mb-1"></i><span class="text-[9px] font-bold uppercase tracking-wider">Absen</span></button>
+                        <button data-id="jurnal" onclick="navigate('jurnal')" class="bottom-nav-item flex flex-col items-center justify-center w-full py-2 transition-all ${state.activeMenu.includes('jurnal') ? 'text-blue-600 -translate-y-1' : 'text-gray-400 hover:text-blue-400'}"><i class="fas fa-book text-xl mb-1"></i><span class="text-[9px] font-bold uppercase tracking-wider">Jurnal</span></button>
                         <button data-id="nilai" onclick="navigate('nilai')" class="bottom-nav-item flex flex-col items-center justify-center w-full py-2 transition-all ${state.activeMenu.includes('nilai') ? 'text-blue-600 -translate-y-1' : 'text-gray-400 hover:text-blue-400'}"><i class="fas fa-star text-xl mb-1"></i><span class="text-[9px] font-bold uppercase tracking-wider">Nilai</span></button>
                         <button data-id="profil" onclick="navigate('profil')" class="bottom-nav-item flex flex-col items-center justify-center w-full py-2 transition-all ${state.activeMenu.includes('profil') ? 'text-blue-600 -translate-y-1' : 'text-gray-400 hover:text-blue-400'}"><i class="fas fa-user-edit text-xl mb-1"></i><span class="text-[9px] font-bold uppercase tracking-wider">Profil</span></button>
                         ${role === 'Admin' ? `<button onclick="toggleSidebar()" class="flex flex-col items-center justify-center w-full py-2 text-gray-400 hover:text-blue-400"><i class="fas fa-cog text-xl mb-1"></i><span class="text-[9px] font-bold uppercase tracking-wider">Admin</span></button>` : ''}
@@ -527,11 +524,10 @@
                         <div class="font-bold text-gray-800">${u.nama}</div>
                         <div class="text-[10px] font-bold uppercase tracking-wider text-blue-600 mt-1">${u.role}</div>
                     </td>
-                    <td class="p-4 text-sm text-gray-400">********</td>
                     <td class="p-4 text-sm font-medium text-gray-600">${u.mapel || '-'}</td>
-                    <td class="p-4 text-center">${u.foto ? `<img src="${u.foto}" class="w-10 h-10 rounded-full mx-auto object-cover border-2 border-white shadow-sm">` : '<div class="w-10 h-10 rounded-full mx-auto bg-gray-100 flex items-center justify-center text-gray-400"><i class="fas fa-user"></i></div>'}</td>
+                    <td class="p-4 text-center"><img src="${getValidFoto(u.foto, u.nama)}" class="w-10 h-10 rounded-full mx-auto object-cover border-2 border-white shadow-sm bg-gray-100"></td>
                     <td class="p-4 text-center">
-                        <button onclick="formUser('${u.id}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button onclick='formUser(${JSON.stringify(u)})' class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
                         <button onclick="hapusUser('${u.id}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-colors mx-1" title="Hapus"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>
@@ -561,13 +557,12 @@
             
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div class="overflow-x-auto max-h-[60vh]">
-                    <table class="w-full text-left border-collapse min-w-[1000px]">
+                    <table class="w-full text-left border-collapse min-w-[900px]">
                         <thead class="bg-white/90 backdrop-blur-md text-gray-600 sticky top-0 z-10 border-b border-gray-100 text-[11px] uppercase tracking-wider font-extrabold">
                             <tr>
                                 <th class="p-4 text-center w-12">No</th>
                                 <th class="p-4">NIP/Username</th>
                                 <th class="p-4">Nama & Role</th>
-                                <th class="p-4">Password</th>
                                 <th class="p-4">Mapel</th>
                                 <th class="p-4 text-center">Foto</th>
                                 <th class="p-4 text-center w-32">Aksi</th>
@@ -579,7 +574,7 @@
             </div>`;
         }
 
-        // --- FUNGSI EXCEL DOWNLOAD & UPLOAD ---
+        // --- EXCEL TEMPLATES ---
         window.downloadTemplateUser = function() {
             const ws = XLSX.utils.aoa_to_sheet([["NIP", "Nama", "Password", "Role", "Mapel"]]);
             const wb = XLSX.utils.book_new();
@@ -628,7 +623,7 @@
         };
 
         window.downloadTemplateSiswa = function() {
-            const ws = XLSX.utils.aoa_to_sheet([["No", "NIS", "NISN", "Nama", "JK", "Password", "Kelas", "Tahun"]]);
+            const ws = XLSX.utils.aoa_to_sheet([["No", "NIS", "NISN", "Nama", "JK", "Kelas", "Tahun"]]);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Data_Siswa");
             XLSX.writeFile(wb, "Template_Siswa.xlsx");
@@ -654,7 +649,6 @@
                         nisn: String(row.NISN || ''),
                         nama: row.Nama || '',
                         jk: row.JK || 'L',
-                        password: String(row.Password || '123456'),
                         kelas: String(row.Kelas || ''),
                         tahun: String(row.Tahun || ''),
                         foto: ''
@@ -691,9 +685,7 @@
             else if(!hasVisible && rows.length > 0) document.getElementById('userTableBody').insertAdjacentHTML('beforeend', `<tr id="userEmptyRow"><td colspan="7" class="p-8 text-center text-gray-400 font-medium">Pencarian tidak ditemukan</td></tr>`);
         }
 
-        // PERBAIKAN: Menggunakan Parameter ID sebagai String, bukan Object Object JSON
-        window.formUser = function(id = null) {
-            const data = id ? state.users.find(u => u.id === id) : null;
+        window.formUser = function(data = null) {
             const html = `
                 <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-black text-gray-800">${data ? 'Edit User' : 'User Baru'}</h2><button onclick="closeModal()" class="text-gray-400 hover:text-red-500 bg-gray-50 w-8 h-8 rounded-full transition-colors"><i class="fas fa-times"></i></button></div>
                 <form onsubmit="simpanUser(event, '${data ? data.id : ''}')" class="space-y-4">
@@ -707,9 +699,9 @@
                     </div>
                     <div><label class="block text-sm font-bold text-gray-700 mb-1">Mata Pelajaran (Isi '-' jika tidak ada)</label><input type="text" id="uMapel" value="${data ? data.mapel : '-'}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"></div>
                     <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">Foto Profil (Maks 25KB)</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Foto Profil (Opsional - Maks 25KB)</label>
                         <input type="file" id="uFotoInput" accept="image/*" onchange="handleImageUpload(event, 'uPreview', 'uBase64')" class="w-full border border-gray-200 rounded-xl p-2 text-sm bg-gray-50">
-                        <img id="uPreview" src="${data && data.foto ? data.foto : ''}" class="mt-3 h-20 w-20 rounded-full border-2 border-blue-200 object-cover shadow-sm ${data && data.foto ? '' : 'hidden'}">
+                        <img id="uPreview" src="${data ? getValidFoto(data.foto, data.nama) : ''}" class="mt-3 h-20 w-20 rounded-full border-2 border-blue-200 object-cover shadow-sm ${data ? '' : 'hidden'}">
                         <textarea id="uBase64" class="hidden">${data && data.foto ? data.foto : ''}</textarea>
                     </div>
                     <div class="pt-6 flex justify-end"><button type="submit" class="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:bg-blue-700 active:scale-95 transition-all text-lg">Simpan Data</button></div>
@@ -719,7 +711,7 @@
         }
 
         window.simpanUser = async function(e, id) {
-            e.preventDefault(); 
+            e.preventDefault(); closeModal();
             const payload = { 
                 id: id || `U-${Date.now()}`, 
                 nip: document.getElementById('uNip').value, 
@@ -729,9 +721,6 @@
                 mapel: document.getElementById('uMapel').value, 
                 foto: document.getElementById('uBase64').value 
             };
-            
-            // PERBAIKAN: Memindahkan pemanggilan closeModal() ke SETELAH nilai form berhasil diambil
-            closeModal();
             
             showSyncToast();
             try { 
@@ -778,20 +767,21 @@
             filtered.sort((a, b) => parseInt(a.no) - parseInt(b.no));
 
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${fKelas===k?'selected':''}>${k}</option>`).join('');
-            let optThn = getTahunAktif().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
+            let optThn = getSavedTahun().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
 
             let tbody = filtered.map((s, i) => `
                 <tr class="border-b border-gray-50 hover:bg-blue-50/50 transition-colors">
                     <td class="p-4 text-sm text-center text-gray-500">${s.no}</td>
                     <td class="p-4 text-sm font-bold text-gray-600">${String(s.nis).replace(/^'/, '')} <span class="text-xs font-normal text-gray-400">/ ${String(s.nisn).replace(/^'/, '')}</span></td>
-                    <td class="p-4 text-sm font-bold text-gray-800">${s.nama}</td>
+                    <td class="p-4 text-sm flex items-center gap-3">
+                        <img src="${getValidFoto(s.foto, s.nama, s.jk)}" class="w-8 h-8 rounded-full border border-gray-200">
+                        <span class="font-bold text-gray-800">${s.nama}</span>
+                    </td>
                     <td class="p-4 text-sm text-center"><span class="w-7 h-7 inline-flex items-center justify-center rounded-full ${s.jk==='L'?'bg-cyan-50 text-cyan-600':'bg-rose-50 text-rose-600'} font-bold">${s.jk || '-'}</span></td>
-                    <td class="p-4 text-sm text-gray-400 tracking-widest">****</td>
                     <td class="p-4 text-sm text-center"><span class="bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">${s.kelas}</span></td>
                     <td class="p-4 text-sm text-center font-medium text-gray-600">${s.tahun}</td>
-                    <td class="p-4 text-center">${s.foto ? `<img src="${s.foto}" class="w-10 h-10 rounded-full mx-auto object-cover border-2 border-white shadow-sm">` : '<div class="w-10 h-10 rounded-full mx-auto bg-gray-100 flex items-center justify-center text-gray-400"><i class="fas fa-user-graduate"></i></div>'}</td>
                     <td class="p-4 text-center">
-                        <button onclick="formSiswa('${s.id}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button onclick='formSiswa(${JSON.stringify(s)})' class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors mx-1" title="Edit"><i class="fas fa-edit"></i></button>
                         <button onclick="hapusSiswa('${s.id}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-colors mx-1" title="Hapus"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>
@@ -800,7 +790,7 @@
             return `
             <div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold text-gray-800">Kelola Data Siswa</h1></div>
             <div class="bg-white p-5 rounded-2xl shadow-sm mb-6 border border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div><label class="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Tahun Pelajaran</label><select id="fsTahun" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500"><option value="">Semua Tahun</option>${optThn}</select></div>
+                <div><label class="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Tahun Pelajaran</label><select id="fsTahun" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500"><option value="">Semua Tahun (Tersimpan)</option>${optThn}</select></div>
                 <div><label class="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Kelas</label><select id="fsKelas" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500"><option value="">Semua Kelas</option>${optKls}</select></div>
                 <div><label class="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Nama Siswa</label><input type="text" id="fsNama" value="${fNama}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ketik nama..."></div>
                 <div class="flex gap-2">
@@ -820,10 +810,10 @@
             
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div class="overflow-x-auto max-h-[60vh] hide-scroll">
-                    <table class="w-full text-left border-collapse min-w-[1000px]">
+                    <table class="w-full text-left border-collapse min-w-[900px]">
                         <thead class="bg-white/90 backdrop-blur-md text-gray-600 sticky top-0 z-10 border-b border-gray-100 text-[11px] uppercase tracking-wider font-extrabold">
                             <tr>
-                                <th class="p-4 text-center w-12">No</th><th class="p-4">NIS / NISN</th><th class="p-4">Nama Siswa</th><th class="p-4 text-center">L/P</th><th class="p-4">Password</th><th class="p-4 text-center">Kelas</th><th class="p-4 text-center">Tahun</th><th class="p-4 text-center">Foto</th><th class="p-4 text-center w-32">Aksi</th>
+                                <th class="p-4 text-center w-12">No</th><th class="p-4">NIS / NISN</th><th class="p-4">Nama Siswa</th><th class="p-4 text-center">L/P</th><th class="p-4 text-center">Kelas</th><th class="p-4 text-center">Tahun</th><th class="p-4 text-center w-32">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>${tbody || emptyStateHTML('Siswa')}</tbody>
@@ -832,12 +822,9 @@
             </div>`;
         }
 
-        // PERBAIKAN: Pelemparan argumen string ID
-        window.formSiswa = function(id = null) {
-            const data = id ? state.siswa.find(s => s.id === id) : null;
+        window.formSiswa = function(data = null) {
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${data&&data.kelas===k?'selected':''}>${k}</option>`).join('');
-            let optThn = getDynamicTahun().map(t=>`<option value="${t}" ${data&&data.tahun===t?'selected':''}>${t}</option>`).join('');
-            
+            let optThn = getFullTahunOptions().map(t=>`<option value="${t}" ${data&&data.tahun===t?'selected':''}>${t}</option>`).join('');
             const html = `
                 <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-black text-gray-800">${data ? 'Edit Siswa' : 'Siswa Baru'}</h2><button onclick="closeModal()" class="text-gray-400 hover:text-red-500 bg-gray-50 w-8 h-8 rounded-full transition-colors"><i class="fas fa-times"></i></button></div>
                 <form onsubmit="simpanSiswa(event, '${data ? data.id : ''}')" class="space-y-4">
@@ -847,30 +834,18 @@
                     </div>
                     <div><label class="block text-sm font-bold text-gray-700 mb-1">NISN</label><input type="text" id="sNisn" value="${data ? String(data.nisn).replace(/^'/, '') : ''}" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"></div>
                     <div><label class="block text-sm font-bold text-gray-700 mb-1">Nama Lengkap</label><input type="text" id="sNama" value="${data ? data.nama : ''}" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"></div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">Gender</label><select id="sJk" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"><option value="L" ${data && data.jk==='L'?'selected':''}>Laki-Laki (L)</option><option value="P" ${data && data.jk==='P'?'selected':''}>Perempuan (P)</option></select></div>
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">Password</label><input type="text" id="sPass" value="${data ? String(data.password).replace(/^'/, '') : '123456'}" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"></div>
-                    </div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">Gender</label><select id="sJk" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"><option value="L" ${data && data.jk==='L'?'selected':''}>Laki-Laki (L)</option><option value="P" ${data && data.jk==='P'?'selected':''}>Perempuan (P)</option></select></div>
                     <div class="grid grid-cols-2 gap-4">
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">Kelas</label><select id="sKls" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500">${optKls}</select></div>
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">Tahun Ajaran</label><select id="sThn" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500">${optThn}</select></div>
                     </div>
-                    
-                    <!-- PERBAIKAN: Input File untuk Foto Siswa ditambahkan -->
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">Foto Profil Siswa (Maks 25KB)</label>
-                        <input type="file" id="sFotoInput" accept="image/*" onchange="handleImageUpload(event, 'sPreview', 'sBase64')" class="w-full border border-gray-200 rounded-xl p-2 text-sm bg-gray-50">
-                        <img id="sPreview" src="${data && data.foto ? data.foto : ''}" class="mt-3 h-20 w-20 rounded-full border-2 border-blue-200 object-cover shadow-sm ${data && data.foto ? '' : 'hidden'}">
-                        <textarea id="sBase64" class="hidden">${data && data.foto ? data.foto : ''}</textarea>
-                    </div>
-
                     <div class="pt-6 flex justify-end"><button type="submit" class="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:bg-blue-700 active:scale-95 transition-all text-lg">Simpan Siswa</button></div>
                 </form>
             `; openModal(html);
         }
 
         window.simpanSiswa = async function(e, id) {
-            e.preventDefault(); 
+            e.preventDefault(); closeModal();
             const p = { 
                 id: id || `S-${Date.now()}`, 
                 no: document.getElementById('sNo').value, 
@@ -878,15 +853,10 @@
                 nisn: document.getElementById('sNisn').value, 
                 nama: document.getElementById('sNama').value, 
                 jk: document.getElementById('sJk').value, 
-                password: document.getElementById('sPass').value, 
                 kelas: document.getElementById('sKls').value, 
                 tahun: document.getElementById('sThn').value, 
-                // PERBAIKAN: Foto sekarang direkam dari form
-                foto: document.getElementById('sBase64').value 
+                foto: '' 
             };
-            
-            // PERBAIKAN: Memindahkan pemanggilan closeModal() ke SETELAH nilai form berhasil diambil
-            closeModal();
             
             showSyncToast(); 
             try { await saveToFirebase('siswa', p); } catch(err) { Swal.fire('Error','Gagal simpan','error'); }
@@ -914,7 +884,7 @@
         function renderJurnal() {
             const r = state.currentUser.role;
             
-            let btnInputFAB = (r !== 'Admin') ? `
+            let btnInputFAB = (r === 'Guru') ? `
                 <button onclick="navigate('inputJurnal')" class="fixed bottom-20 right-6 md:bottom-10 md:right-10 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white w-14 h-14 rounded-full shadow-[0_10px_25px_rgba(37,99,235,0.4)] hover:scale-110 hover:rotate-12 transition-all z-40 flex items-center justify-center animate-bounce group" title="Tambah Jurnal">
                     <i class="fas fa-plus text-2xl group-hover:animate-spin"></i>
                 </button>` : '';
@@ -1012,6 +982,28 @@
             });
         };
 
+        window.autoFillAbsenJurnal = function() {
+            const kls = document.getElementById('jKelas').value;
+            const tgl = document.getElementById('jTgl').value;
+            
+            if(!kls || !tgl || kls === 'Istirahat' || kls === 'Kegiatan Umum') return;
+
+            let h=0, s=0, i=0, a=0;
+            const relevantAbsensi = state.absensi.filter(ab => ab.kelas === kls && (ab.tanggal === tgl || ab.tgl === tgl));
+            
+            relevantAbsensi.forEach(ab => {
+                if(ab.status_kehadiran === 'Hadir') h++;
+                else if(ab.status_kehadiran === 'Sakit') s++;
+                else if(ab.status_kehadiran === 'Ijin') i++;
+                else if(ab.status_kehadiran === 'Alpha') a++;
+            });
+
+            document.getElementById('jHadir').value = h;
+            document.getElementById('jSakit').value = s;
+            document.getElementById('jIjin').value = i;
+            document.getElementById('jAlpha').value = a;
+        }
+
         function renderInputJurnal() {
             let d = window.editJurnalData || null;
             let tgl = d ? d.tgl : getLocalDate(); 
@@ -1037,7 +1029,7 @@
                 
                 <form id="formJurnal" onsubmit="simpanJurnal(event)" class="space-y-6">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-2">Tanggal</label><input type="date" id="jTgl" required value="${tgl}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-blue-500"></div>
+                        <div><label class="block text-sm font-bold text-gray-700 mb-2">Tanggal</label><input type="date" id="jTgl" required value="${tgl}" onchange="autoFillAbsenJurnal()" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-blue-500"></div>
                         <div><label class="block text-sm font-bold text-gray-700 mb-2">Kelas/Kegiatan</label><select id="jKelas" required onchange="handleKelasJurnalChange(this.value)" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-blue-500"><option value="">-Pilih-</option>${optKls}</select></div>
                     </div>
                     <div class="grid grid-cols-2 gap-6">
@@ -1073,7 +1065,7 @@
              const rk = document.getElementById('jRekapAbsensi'); const ur = document.getElementById('jUraian');
              if(val === 'Istirahat') { rk.classList.add('hidden'); rk.classList.remove('grid'); ur.disabled = true; ur.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-400'); ur.value = 'Istirahat'; }
              else if (val === 'Kegiatan Umum') { rk.classList.add('hidden'); rk.classList.remove('grid'); ur.disabled = false; ur.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-400'); if(ur.value==='Istirahat') ur.value=''; }
-             else { rk.classList.remove('hidden'); rk.classList.add('grid'); ur.disabled = false; ur.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-400'); if(ur.value==='Istirahat') ur.value=''; }
+             else { rk.classList.remove('hidden'); rk.classList.add('grid'); ur.disabled = false; ur.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-400'); if(ur.value==='Istirahat') ur.value=''; autoFillAbsenJurnal(); }
         }
         
         window.simpanJurnal = async function(e) { 
@@ -1111,7 +1103,7 @@
             const isGuru = state.currentUser.role === 'Guru';
             const fguru = isGuru ? String(state.currentUser.nip || '').replace(/^'/, '').trim() : (document.getElementById('faGuru')?.value || '').trim();
             
-            let btnInputFAB = (isGuru || state.currentUser.role === 'Admin') ? `
+            let btnInputFAB = (isGuru) ? `
                 <button onclick="navigate('inputAbsensi')" class="fixed bottom-20 right-6 md:bottom-10 md:right-10 bg-gradient-to-tr from-amber-500 to-orange-500 text-white w-14 h-14 rounded-full shadow-[0_10px_25px_rgba(245,158,11,0.4)] hover:scale-110 hover:rotate-12 transition-all z-40 flex items-center justify-center animate-bounce group" title="Input Absen">
                     <i class="fas fa-plus text-2xl group-hover:animate-spin"></i>
                 </button>` : '';
@@ -1139,7 +1131,7 @@
                 return (sisA ? parseInt(sisA.no || 0) : 9999) - (sisB ? parseInt(sisB.no || 0) : 9999);
             });
 
-            let optThn = getTahunAktif().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
+            let optThn = getSavedTahun().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${fKelas===k?'selected':''}>${k}</option>`).join('');
             
             let optGuru = state.users.filter(u => u.role === 'Guru').map(u => {
@@ -1162,7 +1154,7 @@
                     <div class="grid grid-cols-2 gap-3 mb-3">
                         <div>
                             <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center"><i class="far fa-calendar mr-1"></i> Tahun</label>
-                            <select id="faThn" class="w-full bg-gray-50/50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"><option value="">Semua</option>${optThn}</select>
+                            <select id="faThn" class="w-full bg-gray-50/50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"><option value="">Semua (Tersimpan)</option>${optThn}</select>
                         </div>
                         <div>
                             <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center"><i class="fas fa-door-open mr-1"></i> Kelas</label>
@@ -1185,14 +1177,18 @@
                 </div>
             ` : `<div class="w-full text-center text-gray-400 font-medium py-3 text-sm"><i class="fas fa-arrow-up mr-2 animate-bounce"></i> Silakan pilih guru mata pelajaran terlebih dahulu.</div>`;
 
-            let tbody = filtered.map((ab, i) => `<tr class="border-b border-gray-50 hover:bg-blue-50/50 transition-colors"><td class="p-4 text-center text-sm text-gray-500">${i+1}</td><td class="p-4 text-sm whitespace-nowrap font-medium text-gray-700">${ab.tanggal || ab.tgl}</td><td class="p-4 text-sm font-bold text-gray-800">${ab.nama}</td><td class="p-4 text-sm text-center font-medium text-gray-600">${ab.nisn}</td><td class="p-4 text-sm text-center"><span class="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-lg text-xs font-bold border border-indigo-100">${ab.kelas}</span></td><td class="p-4 text-sm text-center">${ab.semester}</td><td class="p-4 text-sm text-center font-black ${ab.status_kehadiran==='Sakit'?'text-amber-500':ab.status_kehadiran==='Ijin'?'text-blue-500':ab.status_kehadiran==='Alpha'?'text-rose-500':'text-emerald-500'} uppercase tracking-wider">${ab.status_kehadiran}</td></tr>`).join('');
+            let tbody = filtered.map((ab, i) => {
+                let sis = state.siswa.find(s => s.nisn === ab.nisn);
+                let imgHtml = sis ? `<img src="${getValidFoto(sis.foto, sis.nama, sis.jk)}" class="w-8 h-8 rounded-full border border-gray-200 inline-block mr-2">` : '';
+                return `<tr class="border-b border-gray-50 hover:bg-blue-50/50 transition-colors"><td class="p-4 text-center text-sm text-gray-500">${i+1}</td><td class="p-4 text-sm whitespace-nowrap font-medium text-gray-700">${ab.tanggal || ab.tgl}</td><td class="p-4 text-sm font-bold text-gray-800 flex items-center">${imgHtml}${ab.nama}</td><td class="p-4 text-sm text-center font-medium text-gray-600">${ab.nisn}</td><td class="p-4 text-sm text-center"><span class="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-lg text-xs font-bold border border-indigo-100">${ab.kelas}</span></td><td class="p-4 text-sm text-center">${ab.semester}</td><td class="p-4 text-sm text-center font-black ${ab.status_kehadiran==='Sakit'?'text-amber-500':ab.status_kehadiran==='Ijin'?'text-blue-500':ab.status_kehadiran==='Alpha'?'text-rose-500':'text-emerald-500'} uppercase tracking-wider">${ab.status_kehadiran}</td></tr>`;
+            }).join('');
 
             return `
             ${btnInputFAB}
             <div class="flex justify-between items-center mb-4">
                 <h1 class="text-2xl font-bold text-gray-800">Data Absensi Siswa</h1>
                 <div class="flex gap-2">
-                    ${!isGuru ?`<button onclick="hapusSemuaAbsensi()" class="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 px-4 py-2 rounded-xl text-sm font-bold active:scale-95 transition-all"><i class="fas fa-trash-alt mr-2"></i>Kosongkan</button>`:''}
+                    ${state.currentUser.role === 'Admin' ?`<button onclick="hapusSemuaAbsensi()" class="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 px-4 py-2 rounded-xl text-sm font-bold active:scale-95 transition-all"><i class="fas fa-trash-alt mr-2"></i>Kosongkan</button>`:''}
                 </div>
             </div>
             
@@ -1228,7 +1224,7 @@
 
         function renderInputAbsensi() {
             let optKls = getDynamicKelas().map(k=>`<option value="${k}">${k}</option>`).join('');
-            let optThn = getTahunAktif().map(t=>`<option value="${t}">${t}</option>`).join('');
+            let optThn = getSavedTahun().map(t=>`<option value="${t}">${t}</option>`).join('');
             return `
             <div class="max-w-4xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 lg:p-10 fade-in">
                 <div class="flex items-center justify-between mb-8 border-b border-gray-100 pb-4"><h2 class="text-2xl font-black text-gray-800">Input Absensi Kelas</h2><button onclick="navigate('absensi')" class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center shadow-sm"><i class="fas fa-times"></i></button></div>
@@ -1252,7 +1248,12 @@
             
             let html = `<form onsubmit="simpanBatchAbsen(event, '${t}', '${k}', '${s}')"><div class="overflow-x-auto pb-4 hide-scroll"><table class="w-full text-left border-collapse min-w-[600px] mb-6 rounded-xl overflow-hidden border border-gray-100"><thead class="bg-gray-50 text-[11px] uppercase tracking-wider font-extrabold text-gray-600"><tr><th class="p-4 border-b w-12 text-center">No</th><th class="p-4 border-b">Nama Siswa</th><th class="p-4 border-b text-center w-64">Status Kehadiran</th></tr></thead><tbody>`;
             sisList.forEach((sis, idx) => {
-                html += `<tr class="border-b hover:bg-gray-50"><td class="p-3 text-center text-gray-500 font-medium">${sis.no || idx+1}</td><td class="p-3 font-bold text-gray-800">${sis.nama}</td><td class="p-3">
+                html += `<tr class="border-b hover:bg-gray-50"><td class="p-3 text-center text-gray-500 font-medium">${sis.no || idx+1}</td>
+                <td class="p-3 flex items-center gap-3">
+                    <img src="${getValidFoto(sis.foto, sis.nama, sis.jk)}" class="w-8 h-8 rounded-full border border-gray-200">
+                    <span class="font-bold text-gray-800">${sis.nama}</span>
+                </td>
+                <td class="p-3">
                     <div class="flex justify-center bg-gray-100 p-1 rounded-lg">
                         <label class="flex-1 text-center cursor-pointer"><input type="radio" name="abs_${sis.nisn}" value="Hadir" checked class="hidden peer" onchange="hitungRekap()"><div class="py-1.5 rounded-md font-bold text-sm text-gray-400 peer-checked:bg-emerald-500 peer-checked:text-white transition-colors">H</div></label>
                         <label class="flex-1 text-center cursor-pointer"><input type="radio" name="abs_${sis.nisn}" value="Sakit" class="hidden peer" onchange="hitungRekap()"><div class="py-1.5 rounded-md font-bold text-sm text-gray-400 peer-checked:bg-amber-500 peer-checked:text-white transition-colors">S</div></label>
@@ -1297,7 +1298,7 @@
             const isGuru = state.currentUser.role === 'Guru';
             const fguru = isGuru ? String(state.currentUser.nip || '').replace(/^'/, '').trim() : (document.getElementById('fnGuru')?.value || '').trim();
 
-            let btnInputFAB = (isGuru || state.currentUser.role === 'Admin') ? `
+            let btnInputFAB = (isGuru) ? `
                 <button onclick="navigate('inputNilai')" class="fixed bottom-20 right-6 md:bottom-10 md:right-10 bg-gradient-to-tr from-rose-500 to-pink-500 text-white w-14 h-14 rounded-full shadow-[0_10px_25px_rgba(244,63,94,0.4)] hover:scale-110 hover:rotate-12 transition-all z-40 flex items-center justify-center animate-bounce group" title="Input Nilai">
                     <i class="fas fa-plus text-2xl group-hover:animate-spin"></i>
                 </button>` : '';
@@ -1316,7 +1317,7 @@
                 return (sisA ? parseInt(sisA.no || 0) : 9999) - (sisB ? parseInt(sisB.no || 0) : 9999);
             });
 
-            let optThn = getTahunAktif().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
+            let optThn = getSavedTahun().map(t=>`<option value="${t}" ${fTahun===t?'selected':''}>${t}</option>`).join('');
             let optKls = getDynamicKelas().map(k=>`<option value="${k}" ${fKelas===k?'selected':''}>${k}</option>`).join('');
             
             let optGuru = state.users.filter(u => u.role === 'Guru').map(u => {
@@ -1370,7 +1371,7 @@
             <div class="flex justify-between items-center mb-4">
                 <h1 class="text-2xl font-bold text-gray-800">Data Nilai Siswa</h1>
                 <div class="flex gap-2">
-                    ${!isGuru?`<button onclick="hapusSemuaNilai()" class="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 px-4 py-2 rounded-xl text-sm font-bold active:scale-95 transition-all"><i class="fas fa-trash-alt mr-2"></i>Kosongkan</button>`:''}
+                    ${state.currentUser.role === 'Admin'?`<button onclick="hapusSemuaNilai()" class="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 px-4 py-2 rounded-xl text-sm font-bold active:scale-95 transition-all"><i class="fas fa-trash-alt mr-2"></i>Kosongkan</button>`:''}
                 </div>
             </div>
             
@@ -1406,7 +1407,7 @@
 
         function renderInputNilai() {
             let optKls = getDynamicKelas().map(k=>`<option value="${k}">${k}</option>`).join(''); 
-            let optThn = getTahunAktif().map(t=>`<option value="${t}">${t}</option>`).join('');
+            let optThn = getSavedTahun().map(t=>`<option value="${t}">${t}</option>`).join('');
             return `
             <div class="max-w-4xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 lg:p-10 fade-in">
                 <div class="flex items-center justify-between mb-8 border-b border-gray-100 pb-4"><h2 class="text-2xl font-black text-gray-800">Input Nilai Kelas <span class="text-blue-600">(${state.currentUser.mapel})</span></h2><button onclick="navigate('nilai')" class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center shadow-sm"><i class="fas fa-times"></i></button></div>
@@ -1458,7 +1459,7 @@
                 <form onsubmit="simpanProfil(event)" class="space-y-6">
                     <div class="flex flex-col items-center mb-6">
                         <div class="relative group cursor-pointer mb-3">
-                            <img id="pPreview" src="${state.currentUser.foto || 'https://via.placeholder.com/150'}" class="h-32 w-32 rounded-full border-4 border-blue-50 object-cover shadow-md transition-transform group-hover:scale-105">
+                            <img id="pPreview" src="${getValidFoto(state.currentUser.foto, state.currentUser.nama)}" class="h-32 w-32 rounded-full border-4 border-blue-50 object-cover shadow-md transition-transform group-hover:scale-105 bg-gray-100">
                             <div class="absolute inset-0 bg-gray-900 bg-opacity-40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" onclick="document.getElementById('pFoto').click()">
                                 <i class="fas fa-camera text-white text-2xl drop-shadow-md"></i>
                             </div>
@@ -1496,6 +1497,15 @@
             try {
                 await saveToFirebase('users', updatedUser);
                 state.currentUser = updatedUser;
+                localStorage.setItem('jantra_user', JSON.stringify(state.currentUser)); // Update session
+                
+                // Update header PP in real-time
+                const validUrl = getValidFoto(updatedUser.foto, updatedUser.nama);
+                const headerImg = document.getElementById('headerProfilePic');
+                const sidebarImg = document.getElementById('sidebarProfilePic');
+                if (headerImg) headerImg.src = validUrl;
+                if (sidebarImg) sidebarImg.src = validUrl;
+
                 closeLoading();
                 Swal.fire('Berhasil', 'Profil berhasil diperbarui.', 'success');
                 render();
@@ -1876,9 +1886,7 @@
         onAuthStateChanged(auth, async (user) => {
             firebaseUser = user;
             if (user) {
-                // Pastikan admin default selalu ada pertama kali
                 await checkDefaultAdmin();
-                // Aktifkan Realtime Listener Data
                 attachListeners();
             }
         });
